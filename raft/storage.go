@@ -18,7 +18,7 @@ import (
 	"errors"
 	"sync"
 
-	pb "go.etcd.io/etcd/raft/raftpb"
+	pb "github.com/pingcap/kvproto/pkg/eraftpb"
 )
 
 // ErrCompacted is returned by Storage.Entries/Compact when a requested
@@ -93,7 +93,7 @@ func NewMemoryStorage() *MemoryStorage {
 
 // InitialState implements the Storage interface.
 func (ms *MemoryStorage) InitialState() (pb.HardState, pb.ConfState, error) {
-	return ms.hardState, ms.snapshot.Metadata.ConfState, nil
+	return ms.hardState, *ms.snapshot.Metadata.ConfState, nil
 }
 
 // SetHardState saves the current HardState.
@@ -204,7 +204,7 @@ func (ms *MemoryStorage) CreateSnapshot(i uint64, cs *pb.ConfState, data []byte)
 	ms.snapshot.Metadata.Index = i
 	ms.snapshot.Metadata.Term = ms.ents[i-offset].Term
 	if cs != nil {
-		ms.snapshot.Metadata.ConfState = *cs
+		ms.snapshot.Metadata.ConfState = cs
 	}
 	ms.snapshot.Data = data
 	return ms.snapshot, nil

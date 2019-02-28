@@ -17,7 +17,7 @@ package raft
 import (
 	"errors"
 
-	pb "go.etcd.io/etcd/raft/raftpb"
+	pb "github.com/pingcap/kvproto/pkg/eraftpb"
 )
 
 // ErrStepLocalMsg is returned when try to step a local raft message
@@ -60,7 +60,7 @@ func (rn *RawNode) commitReady(rd Ready) {
 		e := rd.Entries[len(rd.Entries)-1]
 		rn.Raft.RaftLog.stableTo(e.Index, e.Term)
 	}
-	if !IsEmptySnap(rd.Snapshot) {
+	if !IsEmptySnap(&rd.Snapshot) {
 		rn.Raft.RaftLog.stableSnapTo(rd.Snapshot.Metadata.Index)
 	}
 	if len(rd.ReadStates) != 0 {
@@ -93,13 +93,13 @@ func NewRawNode(config *Config, peers []Peer) (*RawNode, error) {
 		r.becomeFollower(1, None)
 		ents := make([]pb.Entry, len(peers))
 		for i, peer := range peers {
-			cc := pb.ConfChange{Type: pb.ConfChangeAddNode, NodeID: peer.ID, Context: peer.Context}
+			cc := pb.ConfChange{ChangeType: pb.ConfChangeType_AddNode, NodeId: peer.ID, Context: peer.Context}
 			data, err := cc.Marshal()
 			if err != nil {
 				panic("unexpected marshal error")
 			}
 
-			ents[i] = pb.Entry{Type: pb.EntryConfChange, Term: 1, Index: uint64(i + 1), Data: data}
+			ents[i] = pb.Entry{EntryType: pb.EntryType_EntryConfChange, Term: 1, Index: uint64(i + 1), Data: data}
 		}
 		r.RaftLog.append(ents...)
 		r.RaftLog.committed = uint64(len(ents))
@@ -139,18 +139,17 @@ func (rn *RawNode) TickQuiesced() {
 // Campaign causes this RawNode to transition to candidate state.
 func (rn *RawNode) Campaign() error {
 	return rn.Raft.Step(pb.Message{
-		Type: pb.MsgHup,
+		MsgType: pb.MessageType_MsgHup,
 	})
 }
 
 // Propose proposes data be appended to the raft log.
 func (rn *RawNode) Propose(data []byte) error {
+	ent := pb.Entry{Data: data}
 	return rn.Raft.Step(pb.Message{
-		Type: pb.MsgProp,
+		MsgType: pb.MessageType_MsgPropose,
 		From: rn.Raft.id,
-		Entries: []pb.Entry{
-			{Data: data},
-		}})
+		Entries: []*pb.Entry{&ent}})
 }
 
 // ProposeConfChange proposes a config change.
@@ -159,27 +158,25 @@ func (rn *RawNode) ProposeConfChange(cc pb.ConfChange) error {
 	if err != nil {
 		return err
 	}
+	ent := pb.Entry{EntryType: pb.EntryType_EntryConfChange, Data: data}
 	return rn.Raft.Step(pb.Message{
-		Type: pb.MsgProp,
-		Entries: []pb.Entry{
-			{Type: pb.EntryConfChange, Data: data},
-		},
+		MsgType: pb.MessageType_MsgPropose,
+		Entries: []*pb.Entry{&ent},
 	})
 }
 
 // ApplyConfChange applies a config change to the local node.
 func (rn *RawNode) ApplyConfChange(cc pb.ConfChange) *pb.ConfState {
-	if cc.NodeID == None {
+	if cc.NodeId == None {
 		return &pb.ConfState{Nodes: rn.Raft.nodes(), Learners: rn.Raft.learnerNodes()}
 	}
-	switch cc.Type {
-	case pb.ConfChangeAddNode:
-		rn.Raft.addNode(cc.NodeID)
-	case pb.ConfChangeAddLearnerNode:
-		rn.Raft.addLearner(cc.NodeID)
-	case pb.ConfChangeRemoveNode:
-		rn.Raft.removeNode(cc.NodeID)
-	case pb.ConfChangeUpdateNode:
+	switch cc.ChangeType {
+	case pb.ConfChangeType_AddNode:
+		rn.Raft.addNode(cc.NodeId)
+	case pb.ConfChangeType_AddLearnerNode:
+		rn.Raft.addLearner(cc.NodeId)
+	case pb.ConfChangeType_RemoveNode:
+		rn.Raft.removeNode(cc.NodeId)
 	default:
 		panic("unexpected conf type")
 	}
@@ -189,10 +186,10 @@ func (rn *RawNode) ApplyConfChange(cc pb.ConfChange) *pb.ConfState {
 // Step advances the state machine using the given message.
 func (rn *RawNode) Step(m pb.Message) error {
 	// ignore unexpected local messages receiving over network
-	if IsLocalMsg(m.Type) {
+	if IsLocalMsg(m.MsgType) {
 		return ErrStepLocalMsg
 	}
-	if pr := rn.Raft.getProgress(m.From); pr != nil || !IsResponseMsg(m.Type) {
+	if pr := rn.Raft.getProgress(m.From); pr != nil || !IsResponseMsg(m.MsgType) {
 		return rn.Raft.Step(m)
 	}
 	return ErrStepPeerNotFound
@@ -216,7 +213,7 @@ func (rn *RawNode) HasReady() bool {
 	if hardSt := r.hardState(); !IsEmptyHardState(hardSt) && !isHardStateEqual(hardSt, rn.prevHardSt) {
 		return true
 	}
-	if r.RaftLog.unstable.snapshot != nil && !IsEmptySnap(*r.RaftLog.unstable.snapshot) {
+	if r.RaftLog.unstable.snapshot != nil && !IsEmptySnap(r.RaftLog.unstable.snapshot) {
 		return true
 	}
 	if len(r.msgs) > 0 || len(r.RaftLog.unstableEntries()) > 0 || r.RaftLog.hasNextEnts() {
@@ -283,19 +280,19 @@ func (rn *RawNode) WithProgress(visitor func(id uint64, typ ProgressType, pr Pro
 
 // ReportUnreachable reports the given node is not reachable for the last send.
 func (rn *RawNode) ReportUnreachable(id uint64) {
-	_ = rn.Raft.Step(pb.Message{Type: pb.MsgUnreachable, From: id})
+	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgUnreachable, From: id})
 }
 
 // ReportSnapshot reports the status of the sent snapshot.
 func (rn *RawNode) ReportSnapshot(id uint64, status SnapshotStatus) {
 	rej := status == SnapshotFailure
 
-	_ = rn.Raft.Step(pb.Message{Type: pb.MsgSnapStatus, From: id, Reject: rej})
+	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgSnapStatus, From: id, Reject: rej})
 }
 
 // TransferLeader tries to transfer leadership to the given transferee.
 func (rn *RawNode) TransferLeader(transferee uint64) {
-	_ = rn.Raft.Step(pb.Message{Type: pb.MsgTransferLeader, From: transferee})
+	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgTransferLeader, From: transferee})
 }
 
 // ReadIndex requests a read state. The read state will be set in ready.
@@ -303,7 +300,8 @@ func (rn *RawNode) TransferLeader(transferee uint64) {
 // index, any linearizable read requests issued before the read request can be
 // processed safely. The read state will have the same rctx attached.
 func (rn *RawNode) ReadIndex(rctx []byte) {
-	_ = rn.Raft.Step(pb.Message{Type: pb.MsgReadIndex, Entries: []pb.Entry{{Data: rctx}}})
+	ent := pb.Entry{Data: rctx}
+	_ = rn.Raft.Step(pb.Message{MsgType: pb.MessageType_MsgReadIndex, Entries: []*pb.Entry{&ent}})
 }
 
 func (rn *RawNode) GetSnap() *pb.Snapshot {
@@ -329,7 +327,7 @@ func (rn *RawNode) HasReadySince(appliedIdx *uint64) bool {
 	if len(rn.Raft.readStates) != 0 {
 		return true
 	}
-	if snap := rn.GetSnap(); snap != nil && !IsEmptySnap(*snap) {
+	if snap := rn.GetSnap(); snap != nil && !IsEmptySnap(snap) {
 		return true
 	}
 	hasUnappliedEntries := false

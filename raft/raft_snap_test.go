@@ -17,7 +17,7 @@ package raft
 import (
 	"testing"
 
-	pb "go.etcd.io/etcd/raft/raftpb"
+	pb "github.com/pingcap/kvproto/pkg/eraftpb"
 )
 
 var (
@@ -42,7 +42,7 @@ func TestSendingSnapshotSetPendingSnapshot(t *testing.T) {
 	// node 2 needs a snapshot
 	sm.prs[2].Next = sm.raftLog.firstIndex()
 
-	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MsgAppResp, Index: sm.prs[2].Next - 1, Reject: true})
+	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MessageType_MsgAppendResponse, Index: sm.prs[2].Next - 1, Reject: true})
 	if sm.prs[2].PendingSnapshot != 11 {
 		t.Fatalf("PendingSnapshot = %d, want 11", sm.prs[2].PendingSnapshot)
 	}
@@ -58,7 +58,7 @@ func TestPendingSnapshotPauseReplication(t *testing.T) {
 
 	sm.prs[2].becomeSnapshot(11)
 
-	sm.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("somedata")}}})
+	sm.Step(pb.Message{From: 1, To: 1, Type: pb.MessageType_MsgPropose, Entries: []pb.Entry{{Data: []byte("somedata")}}})
 	msgs := sm.readMessages()
 	if len(msgs) != 0 {
 		t.Fatalf("len(msgs) = %d, want 0", len(msgs))
@@ -76,7 +76,7 @@ func TestSnapshotFailure(t *testing.T) {
 	sm.prs[2].Next = 1
 	sm.prs[2].becomeSnapshot(11)
 
-	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MsgSnapStatus, Reject: true})
+	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MessageType_MessageType_MsgSnapshotStatus, Reject: true})
 	if sm.prs[2].PendingSnapshot != 0 {
 		t.Fatalf("PendingSnapshot = %d, want 0", sm.prs[2].PendingSnapshot)
 	}
@@ -99,7 +99,7 @@ func TestSnapshotSucceed(t *testing.T) {
 	sm.prs[2].Next = 1
 	sm.prs[2].becomeSnapshot(11)
 
-	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MsgSnapStatus, Reject: false})
+	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MessageType_MessageType_MsgSnapshotStatus, Reject: false})
 	if sm.prs[2].PendingSnapshot != 0 {
 		t.Fatalf("PendingSnapshot = %d, want 0", sm.prs[2].PendingSnapshot)
 	}
@@ -174,36 +174,36 @@ func TestSnapshotSucceedViaAppResp(t *testing.T) {
 	if !n1.maybeSendAppend(2, true /* sendIfEmpty */) {
 		t.Fatalf("expected message to be sent")
 	}
-	if msg := mustSend(n1, n2, pb.MsgApp); len(msg.Entries) > 0 {
+	if msg := mustSend(n1, n2, pb.MessageType_MsgAppend); len(msg.Entries) > 0 {
 		// For this test to work, the leader must not have anything to append
 		// to the follower right now.
 		t.Fatalf("unexpectedly appending entries %v", msg.Entries)
 	}
 
 	// Follower rejects the append (because it doesn't have any log entries)
-	if msg := mustSend(n2, n1, pb.MsgAppResp); !msg.Reject {
+	if msg := mustSend(n2, n1, pb.MessageType_MsgAppendResponse); !msg.Reject {
 		t.Fatalf("expected a rejection with zero hint, got reject=%t hint=%d", msg.Reject, msg.RejectHint)
 	}
 
 	expIdx := snap.Metadata.Index
 	// Leader sends snapshot due to RejectHint of zero (the storage we use here
 	// has index zero compacted).
-	if msg := mustSend(n1, n2, pb.MsgSnap); msg.Snapshot.Metadata.Index != expIdx {
+	if msg := mustSend(n1, n2, pb.MessageType_MsgSnapshot); msg.Snapshot.Metadata.Index != expIdx {
 		t.Fatalf("expected snapshot at index %d, got %d", expIdx, msg.Snapshot.Metadata.Index)
 	}
 
-	// n2 reacts to snapshot with MsgAppResp.
-	if msg := mustSend(n2, n1, pb.MsgAppResp); msg.Index != expIdx {
+	// n2 reacts to snapshot with MessageType_MsgAppendResponse.
+	if msg := mustSend(n2, n1, pb.MessageType_MsgAppendResponse); msg.Index != expIdx {
 		t.Fatalf("expected AppResp at index %d, got %d", expIdx, msg.Index)
 	}
 
-	// Leader sends MsgApp to communicate commit index.
-	if msg := mustSend(n1, n2, pb.MsgApp); msg.Commit != expIdx {
+	// Leader sends MessageType_MsgAppend to communicate commit index.
+	if msg := mustSend(n1, n2, pb.MessageType_MsgAppend); msg.Commit != expIdx {
 		t.Fatalf("expected commit index %d, got %d", expIdx, msg.Commit)
 	}
 
 	// Follower responds.
-	mustSend(n2, n1, pb.MsgAppResp)
+	mustSend(n2, n1, pb.MessageType_MsgAppendResponse)
 
 	// Leader has correct state for follower.
 	pr := n1.prs[2]
@@ -230,9 +230,9 @@ func TestSnapshotAbort(t *testing.T) {
 	sm.prs[2].Next = 1
 	sm.prs[2].becomeSnapshot(11)
 
-	// A successful msgAppResp that has a higher/equal index than the
+	// A successful MessageType_MsgAppendResponse that has a higher/equal index than the
 	// pending snapshot should abort the pending snapshot.
-	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MsgAppResp, Index: 11})
+	sm.Step(pb.Message{From: 2, To: 1, Type: pb.MessageType_MsgAppendResponse, Index: 11})
 	if sm.prs[2].PendingSnapshot != 0 {
 		t.Fatalf("PendingSnapshot = %d, want 0", sm.prs[2].PendingSnapshot)
 	}

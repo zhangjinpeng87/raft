@@ -15,7 +15,7 @@
 package raft
 
 import (
-	pb "go.etcd.io/etcd/raft/raftpb"
+	pb "github.com/pingcap/kvproto/pkg/eraftpb"
 )
 
 func applyToStore(ents []pb.Entry)    {}

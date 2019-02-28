@@ -20,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	pb "go.etcd.io/etcd/raft/raftpb"
+	pb "github.com/pingcap/kvproto/pkg/eraftpb"
 )
 
 var testFormatter EntryFormatter = func(data []byte) string {
@@ -31,17 +31,17 @@ func TestDescribeEntry(t *testing.T) {
 	entry := pb.Entry{
 		Term:  1,
 		Index: 2,
-		Type:  pb.EntryNormal,
+		Type:  pb.EntryType_EntryNormal,
 		Data:  []byte("hello\x00world"),
 	}
 
 	defaultFormatted := DescribeEntry(entry, nil)
-	if defaultFormatted != "1/2 EntryNormal \"hello\\x00world\"" {
+	if defaultFormatted != "1/2 EntryType_EntryNormal \"hello\\x00world\"" {
 		t.Errorf("unexpected default output: %s", defaultFormatted)
 	}
 
 	customFormatted := DescribeEntry(entry, testFormatter)
-	if customFormatted != "1/2 EntryNormal HELLO\x00WORLD" {
+	if customFormatted != "1/2 EntryType_EntryNormal HELLO\x00WORLD" {
 		t.Errorf("unexpected custom output: %s", customFormatted)
 	}
 }
@@ -76,25 +76,25 @@ func TestIsLocalMsg(t *testing.T) {
 		msgt    pb.MessageType
 		isLocal bool
 	}{
-		{pb.MsgHup, true},
-		{pb.MsgBeat, true},
-		{pb.MsgUnreachable, true},
-		{pb.MsgSnapStatus, true},
-		{pb.MsgCheckQuorum, true},
-		{pb.MsgTransferLeader, false},
-		{pb.MsgProp, false},
-		{pb.MsgApp, false},
-		{pb.MsgAppResp, false},
-		{pb.MsgVote, false},
-		{pb.MsgVoteResp, false},
-		{pb.MsgSnap, false},
-		{pb.MsgHeartbeat, false},
-		{pb.MsgHeartbeatResp, false},
-		{pb.MsgTimeoutNow, false},
-		{pb.MsgReadIndex, false},
-		{pb.MsgReadIndexResp, false},
-		{pb.MsgPreVote, false},
-		{pb.MsgPreVoteResp, false},
+		{pb.MessageType_MsgHup, true},
+		{pb.MessageType_MsgBeat, true},
+		{pb.MessageType_MsgUnreachable, true},
+		{pb.MessageType_MessageType_MsgSnapshotStatus, true},
+		{pb.MessageType_MsgCheckQuorum, true},
+		{pb.MessageType_MsgTransferLeader, false},
+		{pb.MessageType_MsgPropose, false},
+		{pb.MessageType_MsgAppend, false},
+		{pb.MessageType_MsgAppendResponse, false},
+		{pb.MessageType_MsgRequestVote, false},
+		{pb.MessageType_MsgRequestVoteResponse, false},
+		{pb.MessageType_MsgSnapshot, false},
+		{pb.MessageType_MsgHeartbeat, false},
+		{pb.MessageType_MsgHeartbeatResponse, false},
+		{pb.MessageType_MsgTimeoutNow, false},
+		{pb.MessageType_MsgReadIndex, false},
+		{pb.MessageType_MsgReadIndexResp, false},
+		{pb.MessageType_MsgRequestPreVote, false},
+		{pb.MessageType_MsgRequestPreVoteResponse, false},
 	}
 
 	for i, tt := range tests {

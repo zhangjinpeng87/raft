@@ -75,7 +75,7 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 		if !proposed && rd.SoftState.Lead == rawNode.raft.id {
 			rawNode.Propose([]byte("somedata"))
 
-			cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeID: 1}
+			cc := raftpb.ConfChange{Type: raftpb.ConfChangeType_AddNode, NodeId: 1}
 			ccdata, err = cc.Marshal()
 			if err != nil {
 				t.Fatal(err)
@@ -107,8 +107,8 @@ func TestRawNodeProposeAndConfChange(t *testing.T) {
 	if !bytes.Equal(entries[0].Data, []byte("somedata")) {
 		t.Errorf("entries[0].Data = %v, want %v", entries[0].Data, []byte("somedata"))
 	}
-	if entries[1].Type != raftpb.EntryConfChange {
-		t.Fatalf("type = %v, want %v", entries[1].Type, raftpb.EntryConfChange)
+	if entries[1].Type != raftpb.EntryType_EntryConfChange {
+		t.Fatalf("type = %v, want %v", entries[1].Type, raftpb.EntryType_EntryConfChange)
 	}
 	if !bytes.Equal(entries[1].Data, ccdata) {
 		t.Errorf("data = %v, want %v", entries[1].Data, ccdata)
@@ -143,7 +143,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 		rd = rawNode.Ready()
 		s.Append(rd.Entries)
 		for _, entry := range rd.CommittedEntries {
-			if entry.Type == raftpb.EntryConfChange {
+			if entry.Type == raftpb.EntryType_EntryConfChange {
 				var cc raftpb.ConfChange
 				cc.Unmarshal(entry.Data)
 				rawNode.ApplyConfChange(cc)
@@ -152,7 +152,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 		rawNode.Advance(rd)
 	}
 
-	cc1 := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeID: 1}
+	cc1 := raftpb.ConfChange{Type: raftpb.ConfChangeType_AddNode, NodeId: 1}
 	ccdata1, err := cc1.Marshal()
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 	proposeConfChangeAndApply(cc1)
 
 	// the new node join should be ok
-	cc2 := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeID: 2}
+	cc2 := raftpb.ConfChange{Type: raftpb.ConfChangeType_AddNode, NodeId: 2}
 	ccdata2, err := cc2.Marshal()
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +191,7 @@ func TestRawNodeProposeAddDuplicateNode(t *testing.T) {
 	}
 }
 
-// TestRawNodeReadIndex ensures that Rawnode.ReadIndex sends the MsgReadIndex message
+// TestRawNodeReadIndex ensures that Rawnode.ReadIndex sends the MessageType_MsgReadIndex message
 // to the underlying raft. It also ensures that ReadState can be read out.
 func TestRawNodeReadIndex(t *testing.T) {
 	msgs := []raftpb.Message{}
@@ -240,12 +240,12 @@ func TestRawNodeReadIndex(t *testing.T) {
 		}
 		rawNode.Advance(rd)
 	}
-	// ensure that MsgReadIndex message is sent to the underlying raft
+	// ensure that MessageType_MsgReadIndex message is sent to the underlying raft
 	if len(msgs) != 1 {
 		t.Fatalf("len(msgs) = %d, want %d", len(msgs), 1)
 	}
-	if msgs[0].Type != raftpb.MsgReadIndex {
-		t.Errorf("msg type = %d, want %d", msgs[0].Type, raftpb.MsgReadIndex)
+	if msgs[0].Type != raftpb.MessageType_MsgReadIndex {
+		t.Errorf("msg type = %d, want %d", msgs[0].Type, raftpb.MessageType_MsgReadIndex)
 	}
 	if !bytes.Equal(msgs[0].Entries[0].Data, wrequestCtx) {
 		t.Errorf("data = %v, want %v", msgs[0].Entries[0].Data, wrequestCtx)
@@ -265,7 +265,7 @@ func TestRawNodeReadIndex(t *testing.T) {
 // start with correct configuration change entries, and can accept and commit
 // proposals.
 func TestRawNodeStart(t *testing.T) {
-	cc := raftpb.ConfChange{Type: raftpb.ConfChangeAddNode, NodeID: 1}
+	cc := raftpb.ConfChange{Type: raftpb.ConfChangeType_AddNode, NodeId: 1}
 	ccdata, err := cc.Marshal()
 	if err != nil {
 		t.Fatalf("unexpected marshal error: %v", err)
@@ -274,10 +274,10 @@ func TestRawNodeStart(t *testing.T) {
 		{
 			HardState: raftpb.HardState{Term: 1, Commit: 1, Vote: 0},
 			Entries: []raftpb.Entry{
-				{Type: raftpb.EntryConfChange, Term: 1, Index: 1, Data: ccdata},
+				{Type: raftpb.EntryType_EntryConfChange, Term: 1, Index: 1, Data: ccdata},
 			},
 			CommittedEntries: []raftpb.Entry{
-				{Type: raftpb.EntryConfChange, Term: 1, Index: 1, Data: ccdata},
+				{Type: raftpb.EntryType_EntryConfChange, Term: 1, Index: 1, Data: ccdata},
 			},
 			MustSync: true,
 		},
@@ -439,7 +439,7 @@ func TestRawNodeCommitPaginationAfterRestart(t *testing.T) {
 		ent := raftpb.Entry{
 			Term:  1,
 			Index: uint64(i + 1),
-			Type:  raftpb.EntryNormal,
+			Type:  raftpb.EntryType_EntryNormal,
 			Data:  []byte("a"),
 		}
 
@@ -456,7 +456,7 @@ func TestRawNodeCommitPaginationAfterRestart(t *testing.T) {
 	s.ents = append(s.ents, raftpb.Entry{
 		Term:  1,
 		Index: uint64(11),
-		Type:  raftpb.EntryNormal,
+		Type:  raftpb.EntryType_EntryNormal,
 		Data:  []byte("boom"),
 	})
 
@@ -477,7 +477,7 @@ func TestRawNodeCommitPaginationAfterRestart(t *testing.T) {
 		highestApplied = rd.CommittedEntries[n-1].Index
 		rawNode.Advance(rd)
 		rawNode.Step(raftpb.Message{
-			Type:   raftpb.MsgHeartbeat,
+			Type:   raftpb.MessageType_MsgHeartbeat,
 			To:     1,
 			From:   1, // illegal, but we get away with it
 			Term:   1,

@@ -161,7 +161,7 @@ func (pr *Progress) resume() { pr.Paused = false }
 
 // IsPaused returns whether sending log entries to this node has been
 // paused. A node may be paused because it has rejected recent
-// MsgApps, is currently waiting for a snapshot, or has reached the
+// MessageType_MsgAppends, is currently waiting for a snapshot, or has reached the
 // MaxInflightMsgs limit.
 func (pr *Progress) IsPaused() bool {
 	switch pr.State {

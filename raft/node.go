@@ -18,7 +18,7 @@ import (
 	"context"
 	"errors"
 
-	pb "go.etcd.io/etcd/raft/raftpb"
+	pb "github.com/pingcap/kvproto/pkg/eraftpb"
 )
 
 type SnapshotStatus int
@@ -62,7 +62,7 @@ type Ready struct {
 
 	// ReadStates can be used for node to serve linearizable read requests locally
 	// when its applied index is greater than the index in ReadState.
-	// Note that the readState will be returned when raft receives msgReadIndex.
+	// Note that the readState will be returned when raft receives MessageType_MsgReadIndex.
 	// The returned is only valid for the request that requested to read.
 	ReadStates []ReadState
 
@@ -80,7 +80,7 @@ type Ready struct {
 
 	// Messages specifies outbound messages to be sent AFTER Entries are
 	// committed to stable storage.
-	// If it contains a MsgSnap message, the application MUST report back to raft
+	// If it contains a MessageType_MsgSnapshot message, the application MUST report back to raft
 	// when the snapshot has been received or has failed by calling ReportSnapshot.
 	Messages []pb.Message
 
@@ -99,13 +99,16 @@ func IsEmptyHardState(st pb.HardState) bool {
 }
 
 // IsEmptySnap returns true if the given Snapshot is empty.
-func IsEmptySnap(sp pb.Snapshot) bool {
+func IsEmptySnap(sp *pb.Snapshot) bool {
+	if sp == nil {
+		return true
+	}
 	return sp.Metadata.Index == 0
 }
 
 func (rd Ready) containsUpdates() bool {
 	return rd.SoftState != nil || !IsEmptyHardState(rd.HardState) ||
-		!IsEmptySnap(rd.Snapshot) || len(rd.Entries) > 0 ||
+		!IsEmptySnap(&rd.Snapshot) || len(rd.Entries) > 0 ||
 		len(rd.CommittedEntries) > 0 || len(rd.Messages) > 0 || len(rd.ReadStates) != 0
 }
 
@@ -134,7 +137,7 @@ type Node interface {
 	Propose(ctx context.Context, data []byte) error
 	// ProposeConfChange proposes config change.
 	// At most one ConfChange can be in the process of going through consensus.
-	// Application needs to call ApplyConfChange when applying EntryConfChange type entry.
+	// Application needs to call ApplyConfChange when applying EntryType_EntryConfChange type entry.
 	ProposeConfChange(ctx context.Context, cc pb.ConfChange) error
 	// Step advances the state machine using the given message. ctx.Err() will be returned, if any.
 	Step(ctx context.Context, msg pb.Message) error
@@ -196,19 +199,19 @@ type Peer struct {
 }
 
 // StartNode returns a new Node given configuration and a list of raft peers.
-// It appends a ConfChangeAddNode entry for each given peer to the initial log.
+// It appends a ConfChangeType_AddNode entry for each given peer to the initial log.
 func StartNode(c *Config, peers []Peer) Node {
 	r := newRaft(c)
 	// become the follower at term 1 and apply initial configuration
 	// entries of term 1
 	r.becomeFollower(1, None)
 	for _, peer := range peers {
-		cc := pb.ConfChange{Type: pb.ConfChangeAddNode, NodeID: peer.ID, Context: peer.Context}
+		cc := pb.ConfChange{ChangeType: pb.ConfChangeType_AddNode, NodeId: peer.ID, Context: peer.Context}
 		d, err := cc.Marshal()
 		if err != nil {
 			panic("unexpected marshal error")
 		}
-		e := pb.Entry{Type: pb.EntryConfChange, Term: 1, Index: r.RaftLog.LastIndex() + 1, Data: d}
+		e := pb.Entry{EntryType: pb.EntryType_EntryConfChange, Term: 1, Index: r.RaftLog.LastIndex() + 1, Data: d}
 		r.RaftLog.append(e)
 	}
 	// Mark these initial entries as committed.
@@ -353,11 +356,11 @@ func (n *node) run(r *Raft) {
 			}
 		case m := <-n.recvc:
 			// filter out response message from unknown From.
-			if pr := r.getProgress(m.From); pr != nil || !IsResponseMsg(m.Type) {
+			if pr := r.getProgress(m.From); pr != nil || !IsResponseMsg(m.MsgType) {
 				r.Step(m)
 			}
 		case cc := <-n.confc:
-			if cc.NodeID == None {
+			if cc.NodeId == None {
 				select {
 				case n.confstatec <- pb.ConfState{
 					Nodes:    r.nodes(),
@@ -366,19 +369,18 @@ func (n *node) run(r *Raft) {
 				}
 				break
 			}
-			switch cc.Type {
-			case pb.ConfChangeAddNode:
-				r.addNode(cc.NodeID)
-			case pb.ConfChangeAddLearnerNode:
-				r.addLearner(cc.NodeID)
-			case pb.ConfChangeRemoveNode:
+			switch cc.ChangeType {
+			case pb.ConfChangeType_AddNode:
+				r.addNode(cc.NodeId)
+			case pb.ConfChangeType_AddLearnerNode:
+				r.addLearner(cc.NodeId)
+			case pb.ConfChangeType_RemoveNode:
 				// block incoming proposal when local node is
 				// removed
-				if cc.NodeID == r.id {
+				if cc.NodeId == r.id {
 					propc = nil
 				}
-				r.removeNode(cc.NodeID)
-			case pb.ConfChangeUpdateNode:
+				r.removeNode(cc.NodeId)
 			default:
 				panic("unexpected conf type")
 			}
@@ -402,7 +404,7 @@ func (n *node) run(r *Raft) {
 			if !IsEmptyHardState(rd.HardState) {
 				prevHardSt = rd.HardState
 			}
-			if !IsEmptySnap(rd.Snapshot) {
+			if !IsEmptySnap(&rd.Snapshot) {
 				prevSnapi = rd.Snapshot.Metadata.Index
 			}
 			if index := rd.appliedCursor(); index != 0 {
@@ -444,15 +446,16 @@ func (n *node) Tick() {
 	}
 }
 
-func (n *node) Campaign(ctx context.Context) error { return n.step(ctx, pb.Message{Type: pb.MsgHup}) }
+func (n *node) Campaign(ctx context.Context) error { return n.step(ctx, pb.Message{MsgType: pb.MessageType_MsgHup}) }
 
 func (n *node) Propose(ctx context.Context, data []byte) error {
-	return n.stepWait(ctx, pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Data: data}}})
+	entry := pb.Entry{Data:data}
+	return n.stepWait(ctx, pb.Message{MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{&entry}})
 }
 
 func (n *node) Step(ctx context.Context, m pb.Message) error {
 	// ignore unexpected local messages receiving over network
-	if IsLocalMsg(m.Type) {
+	if IsLocalMsg(m.MsgType) {
 		// TODO: return an error?
 		return nil
 	}
@@ -464,7 +467,8 @@ func (n *node) ProposeConfChange(ctx context.Context, cc pb.ConfChange) error {
 	if err != nil {
 		return err
 	}
-	return n.Step(ctx, pb.Message{Type: pb.MsgProp, Entries: []pb.Entry{{Type: pb.EntryConfChange, Data: data}}})
+	entry := pb.Entry{EntryType: pb.EntryType_EntryConfChange, Data: data}
+	return n.Step(ctx, pb.Message{MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{&entry}})
 }
 
 func (n *node) step(ctx context.Context, m pb.Message) error {
@@ -478,7 +482,7 @@ func (n *node) stepWait(ctx context.Context, m pb.Message) error {
 // Step advances the state machine using msgs. The ctx.Err() will be returned,
 // if any.
 func (n *node) stepWithWaitOption(ctx context.Context, m pb.Message, wait bool) error {
-	if m.Type != pb.MsgProp {
+	if m.MsgType != pb.MessageType_MsgPropose {
 		select {
 		case n.recvc <- m:
 			return nil
@@ -550,7 +554,7 @@ func (n *node) Status() Status {
 
 func (n *node) ReportUnreachable(id uint64) {
 	select {
-	case n.recvc <- pb.Message{Type: pb.MsgUnreachable, From: id}:
+	case n.recvc <- pb.Message{MsgType: pb.MessageType_MsgUnreachable, From: id}:
 	case <-n.done:
 	}
 }
@@ -559,7 +563,7 @@ func (n *node) ReportSnapshot(id uint64, status SnapshotStatus) {
 	rej := status == SnapshotFailure
 
 	select {
-	case n.recvc <- pb.Message{Type: pb.MsgSnapStatus, From: id, Reject: rej}:
+	case n.recvc <- pb.Message{MsgType: pb.MessageType_MsgSnapStatus, From: id, Reject: rej}:
 	case <-n.done:
 	}
 }
@@ -567,14 +571,15 @@ func (n *node) ReportSnapshot(id uint64, status SnapshotStatus) {
 func (n *node) TransferLeadership(ctx context.Context, lead, transferee uint64) {
 	select {
 	// manually set 'from' and 'to', so that leader can voluntarily transfers its leadership
-	case n.recvc <- pb.Message{Type: pb.MsgTransferLeader, From: transferee, To: lead}:
+	case n.recvc <- pb.Message{MsgType: pb.MessageType_MsgTransferLeader, From: transferee, To: lead}:
 	case <-n.done:
 	case <-ctx.Done():
 	}
 }
 
 func (n *node) ReadIndex(ctx context.Context, rctx []byte) error {
-	return n.step(ctx, pb.Message{Type: pb.MsgReadIndex, Entries: []pb.Entry{{Data: rctx}}})
+	entry := pb.Entry{Data: rctx}
+	return n.step(ctx, pb.Message{MsgType: pb.MessageType_MsgReadIndex, Entries: []*pb.Entry{&entry}})
 }
 
 func newReady(r *Raft, prevSoftSt *SoftState, prevHardSt pb.HardState, sinceIdx *uint64) Ready {

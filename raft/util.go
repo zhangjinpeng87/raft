@@ -18,7 +18,7 @@ import (
 	"bytes"
 	"fmt"
 
-	pb "go.etcd.io/etcd/raft/raftpb"
+	pb "github.com/pingcap/kvproto/pkg/eraftpb"
 )
 
 func (st StateType) MarshalJSON() ([]byte, error) {
@@ -47,21 +47,21 @@ func max(a, b uint64) uint64 {
 }
 
 func IsLocalMsg(msgt pb.MessageType) bool {
-	return msgt == pb.MsgHup || msgt == pb.MsgBeat || msgt == pb.MsgUnreachable ||
-		msgt == pb.MsgSnapStatus || msgt == pb.MsgCheckQuorum
+	return msgt == pb.MessageType_MsgHup || msgt == pb.MessageType_MsgBeat || msgt == pb.MessageType_MsgUnreachable ||
+		msgt == pb.MessageType_MsgSnapStatus || msgt == pb.MessageType_MsgCheckQuorum
 }
 
 func IsResponseMsg(msgt pb.MessageType) bool {
-	return msgt == pb.MsgAppResp || msgt == pb.MsgVoteResp || msgt == pb.MsgHeartbeatResp || msgt == pb.MsgUnreachable || msgt == pb.MsgPreVoteResp
+	return msgt == pb.MessageType_MsgAppendResponse || msgt == pb.MessageType_MsgRequestVoteResponse || msgt == pb.MessageType_MsgHeartbeatResponse || msgt == pb.MessageType_MsgUnreachable || msgt == pb.MessageType_MsgRequestPreVoteResponse
 }
 
 // voteResponseType maps vote and prevote message types to their corresponding responses.
 func voteRespMsgType(msgt pb.MessageType) pb.MessageType {
 	switch msgt {
-	case pb.MsgVote:
-		return pb.MsgVoteResp
-	case pb.MsgPreVote:
-		return pb.MsgPreVoteResp
+	case pb.MessageType_MsgRequestVote:
+		return pb.MessageType_MsgRequestVoteResponse
+	case pb.MessageType_MsgRequestPreVote:
+		return pb.MessageType_MsgRequestPreVoteResponse
 	default:
 		panic(fmt.Sprintf("not a vote message: %s", msgt))
 	}
@@ -75,7 +75,7 @@ type EntryFormatter func([]byte) string
 // Message for debugging.
 func DescribeMessage(m pb.Message, f EntryFormatter) string {
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "%x->%x %v Term:%d Log:%d/%d", m.From, m.To, m.Type, m.Term, m.LogTerm, m.Index)
+	fmt.Fprintf(&buf, "%x->%x %v Term:%d Log:%d/%d", m.From, m.To, m.MsgType, m.Term, m.LogTerm, m.Index)
 	if m.Reject {
 		fmt.Fprintf(&buf, " Rejected (Hint: %d)", m.RejectHint)
 	}
@@ -88,7 +88,7 @@ func DescribeMessage(m pb.Message, f EntryFormatter) string {
 			if i != 0 {
 				buf.WriteString(", ")
 			}
-			buf.WriteString(DescribeEntry(e, f))
+			buf.WriteString(DescribeEntry(*e, f))
 		}
 		fmt.Fprintf(&buf, "]")
 	}
@@ -108,12 +108,12 @@ func PayloadSize(e pb.Entry) int {
 // Entry for debugging.
 func DescribeEntry(e pb.Entry, f EntryFormatter) string {
 	var formatted string
-	if e.Type == pb.EntryNormal && f != nil {
+	if e.EntryType == pb.EntryType_EntryNormal && f != nil {
 		formatted = f(e.Data)
 	} else {
 		formatted = fmt.Sprintf("%q", e.Data)
 	}
-	return fmt.Sprintf("%d/%d %s %s", e.Term, e.Index, e.Type, formatted)
+	return fmt.Sprintf("%d/%d %s %s", e.Term, e.Index, e.EntryType, formatted)
 }
 
 // DescribeEntries calls DescribeEntry for each Entry, adding a newline to

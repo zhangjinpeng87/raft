@@ -17,7 +17,7 @@ package raft
 import (
 	"fmt"
 
-	pb "go.etcd.io/etcd/raft/raftpb"
+	pb "github.com/pingcap/kvproto/pkg/eraftpb"
 )
 
 type Status struct {

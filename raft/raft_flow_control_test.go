@@ -17,13 +17,13 @@ package raft
 import (
 	"testing"
 
-	pb "go.etcd.io/etcd/raft/raftpb"
+	pb "github.com/pingcap/kvproto/pkg/eraftpb"
 )
 
-// TestMsgAppFlowControlFull ensures:
-// 1. msgApp can fill the sending window until full
-// 2. when the window is full, no more msgApp can be sent.
-func TestMsgAppFlowControlFull(t *testing.T) {
+// TestMessageType_MsgAppendFlowControlFull ensures:
+// 1. MessageType_MsgAppend can fill the sending window until full
+// 2. when the window is full, no more MessageType_MsgAppend can be sent.
+func TestMessageType_MsgAppendFlowControlFull(t *testing.T) {
 	r := newTestRaft(1, []uint64{1, 2}, 5, 1, NewMemoryStorage())
 	r.becomeCandidate()
 	r.becomeLeader()
@@ -33,7 +33,7 @@ func TestMsgAppFlowControlFull(t *testing.T) {
 	pr2.becomeReplicate()
 	// fill in the inflights window
 	for i := 0; i < r.maxInflight; i++ {
-		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("somedata")}}})
+		r.Step(pb.Message{From: 1, To: 1, Type: pb.MessageType_MsgPropose, Entries: []pb.Entry{{Data: []byte("somedata")}}})
 		ms := r.readMessages()
 		if len(ms) != 1 {
 			t.Fatalf("#%d: len(ms) = %d, want 1", i, len(ms))
@@ -47,7 +47,7 @@ func TestMsgAppFlowControlFull(t *testing.T) {
 
 	// ensure 2
 	for i := 0; i < 10; i++ {
-		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("somedata")}}})
+		r.Step(pb.Message{From: 1, To: 1, Type: pb.MessageType_MsgPropose, Entries: []pb.Entry{{Data: []byte("somedata")}}})
 		ms := r.readMessages()
 		if len(ms) != 0 {
 			t.Fatalf("#%d: len(ms) = %d, want 0", i, len(ms))
@@ -55,11 +55,11 @@ func TestMsgAppFlowControlFull(t *testing.T) {
 	}
 }
 
-// TestMsgAppFlowControlMoveForward ensures msgAppResp can move
+// TestMessageType_MsgAppendFlowControlMoveForward ensures MessageType_MsgAppendResponse can move
 // forward the sending window correctly:
-// 1. valid msgAppResp.index moves the windows to pass all smaller or equal index.
-// 2. out-of-dated msgAppResp has no effect on the sliding window.
-func TestMsgAppFlowControlMoveForward(t *testing.T) {
+// 1. valid MessageType_MsgAppendResponse.index moves the windows to pass all smaller or equal index.
+// 2. out-of-dated MessageType_MsgAppendResponse has no effect on the sliding window.
+func TestMessageType_MsgAppendFlowControlMoveForward(t *testing.T) {
 	r := newTestRaft(1, []uint64{1, 2}, 5, 1, NewMemoryStorage())
 	r.becomeCandidate()
 	r.becomeLeader()
@@ -69,7 +69,7 @@ func TestMsgAppFlowControlMoveForward(t *testing.T) {
 	pr2.becomeReplicate()
 	// fill in the inflights window
 	for i := 0; i < r.maxInflight; i++ {
-		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("somedata")}}})
+		r.Step(pb.Message{From: 1, To: 1, Type: pb.MessageType_MsgPropose, Entries: []pb.Entry{{Data: []byte("somedata")}}})
 		r.readMessages()
 	}
 
@@ -77,11 +77,11 @@ func TestMsgAppFlowControlMoveForward(t *testing.T) {
 	// so we start with 2.
 	for tt := 2; tt < r.maxInflight; tt++ {
 		// move forward the window
-		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgAppResp, Index: uint64(tt)})
+		r.Step(pb.Message{From: 2, To: 1, Type: pb.MessageType_MsgAppendResponse, Index: uint64(tt)})
 		r.readMessages()
 
 		// fill in the inflights window again
-		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("somedata")}}})
+		r.Step(pb.Message{From: 1, To: 1, Type: pb.MessageType_MsgPropose, Entries: []pb.Entry{{Data: []byte("somedata")}}})
 		ms := r.readMessages()
 		if len(ms) != 1 {
 			t.Fatalf("#%d: len(ms) = %d, want 1", tt, len(ms))
@@ -94,7 +94,7 @@ func TestMsgAppFlowControlMoveForward(t *testing.T) {
 
 		// ensure 2
 		for i := 0; i < tt; i++ {
-			r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgAppResp, Index: uint64(i)})
+			r.Step(pb.Message{From: 2, To: 1, Type: pb.MessageType_MsgAppendResponse, Index: uint64(i)})
 			if !pr2.ins.full() {
 				t.Fatalf("#%d: inflights.full = %t, want %t", tt, pr2.ins.full(), true)
 			}
@@ -102,9 +102,9 @@ func TestMsgAppFlowControlMoveForward(t *testing.T) {
 	}
 }
 
-// TestMsgAppFlowControlRecvHeartbeat ensures a heartbeat response
+// TestMessageType_MsgAppendFlowControlRecvHeartbeat ensures a heartbeat response
 // frees one slot if the window is full.
-func TestMsgAppFlowControlRecvHeartbeat(t *testing.T) {
+func TestMessageType_MsgAppendFlowControlRecvHeartbeat(t *testing.T) {
 	r := newTestRaft(1, []uint64{1, 2}, 5, 1, NewMemoryStorage())
 	r.becomeCandidate()
 	r.becomeLeader()
@@ -114,7 +114,7 @@ func TestMsgAppFlowControlRecvHeartbeat(t *testing.T) {
 	pr2.becomeReplicate()
 	// fill in the inflights window
 	for i := 0; i < r.maxInflight; i++ {
-		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("somedata")}}})
+		r.Step(pb.Message{From: 1, To: 1, Type: pb.MessageType_MsgPropose, Entries: []pb.Entry{{Data: []byte("somedata")}}})
 		r.readMessages()
 	}
 
@@ -123,9 +123,9 @@ func TestMsgAppFlowControlRecvHeartbeat(t *testing.T) {
 			t.Fatalf("#%d: inflights.full = %t, want %t", tt, pr2.ins.full(), true)
 		}
 
-		// recv tt msgHeartbeatResp and expect one free slot
+		// recv tt MessageType_MsgHeartbeatResponse and expect one free slot
 		for i := 0; i < tt; i++ {
-			r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeatResp})
+			r.Step(pb.Message{From: 2, To: 1, Type: pb.MessageType_MsgHeartbeatResponse})
 			r.readMessages()
 			if pr2.ins.full() {
 				t.Fatalf("#%d.%d: inflights.full = %t, want %t", tt, i, pr2.ins.full(), false)
@@ -133,7 +133,7 @@ func TestMsgAppFlowControlRecvHeartbeat(t *testing.T) {
 		}
 
 		// one slot
-		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("somedata")}}})
+		r.Step(pb.Message{From: 1, To: 1, Type: pb.MessageType_MsgPropose, Entries: []pb.Entry{{Data: []byte("somedata")}}})
 		ms := r.readMessages()
 		if len(ms) != 1 {
 			t.Fatalf("#%d: free slot = 0, want 1", tt)
@@ -141,7 +141,7 @@ func TestMsgAppFlowControlRecvHeartbeat(t *testing.T) {
 
 		// and just one slot
 		for i := 0; i < 10; i++ {
-			r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("somedata")}}})
+			r.Step(pb.Message{From: 1, To: 1, Type: pb.MessageType_MsgPropose, Entries: []pb.Entry{{Data: []byte("somedata")}}})
 			ms1 := r.readMessages()
 			if len(ms1) != 0 {
 				t.Fatalf("#%d.%d: len(ms) = %d, want 0", tt, i, len(ms1))
@@ -149,7 +149,7 @@ func TestMsgAppFlowControlRecvHeartbeat(t *testing.T) {
 		}
 
 		// clear all pending messages.
-		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgHeartbeatResp})
+		r.Step(pb.Message{From: 2, To: 1, Type: pb.MessageType_MsgHeartbeatResponse})
 		r.readMessages()
 	}
 }

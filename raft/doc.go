@@ -82,7 +82,7 @@ and all Entries written by any previous Ready batch (Messages may be sent while
 entries from the same batch are being persisted). To reduce the I/O latency, an
 optimization can be applied to make leader write to disk in parallel with its
 followers (as explained at section 10.2.1 in Raft thesis). If any Message has type
-MsgSnap, call Node.ReportSnapshot() after it has been sent (these messages may be
+MessageType_MsgSnapshot, call Node.ReportSnapshot() after it has been sent (these messages may be
 large).
 
 Note: Marshalling messages is not thread-safe; it is important that you
@@ -91,9 +91,9 @@ The easiest way to achieve this is to serialize the messages directly inside
 your main raft loop.
 
 3. Apply Snapshot (if any) and CommittedEntries to the state machine.
-If any committed Entry has Type EntryConfChange, call Node.ApplyConfChange()
+If any committed Entry has Type EntryType_EntryConfChange, call Node.ApplyConfChange()
 to apply it to the node. The configuration change may be cancelled at this point
-by setting the NodeID field to zero before calling ApplyConfChange
+by setting the NodeId field to zero before calling ApplyConfChange
 (but ApplyConfChange must be called one way or the other, and the decision to cancel
 must be based solely on the state machine and not external information such as
 the observed health of the node).
@@ -132,7 +132,7 @@ The total state machine handling loop will look something like this:
       }
       for _, entry := range rd.CommittedEntries {
         process(entry)
-        if entry.Type == raftpb.EntryConfChange {
+        if entry.Type == raftpb.EntryType_EntryConfChange {
           var cc raftpb.ConfChange
           cc.Unmarshal(entry.Data)
           s.Node.ApplyConfChange(cc)
@@ -150,7 +150,7 @@ data, serialize it into a byte slice and call:
 	n.Propose(ctx, data)
 
 If the proposal is committed, data will appear in committed entries with type
-raftpb.EntryNormal. There is no guarantee that a proposed command will be
+raftpb.EntryType_EntryNormal. There is no guarantee that a proposed command will be
 committed; you may have to re-propose after a timeout.
 
 To add or remove a node in a cluster, build ConfChange struct 'cc' and call:
@@ -158,7 +158,7 @@ To add or remove a node in a cluster, build ConfChange struct 'cc' and call:
 	n.ProposeConfChange(ctx, cc)
 
 After config change is committed, some committed entry with type
-raftpb.EntryConfChange will be returned. You must apply it to node through:
+raftpb.EntryType_EntryConfChange will be returned. You must apply it to node through:
 
 	var cc raftpb.ConfChange
 	cc.Unmarshal(data)
@@ -204,96 +204,96 @@ raftpb.MessageType. Note that every step is checked by one common method
 'Step' that safety-checks the terms of node and incoming message to prevent
 stale log entries:
 
-	'MsgHup' is used for election. If a node is a follower or candidate, the
+	'MessageType_MsgHup' is used for election. If a node is a follower or candidate, the
 	'tick' function in 'raft' struct is set as 'tickElection'. If a follower or
 	candidate has not received any heartbeat before the election timeout, it
-	passes 'MsgHup' to its Step method and becomes (or remains) a candidate to
+	passes 'MessageType_MsgHup' to its Step method and becomes (or remains) a candidate to
 	start a new election.
 
-	'MsgBeat' is an internal type that signals the leader to send a heartbeat of
-	the 'MsgHeartbeat' type. If a node is a leader, the 'tick' function in
+	'MessageType_MsgBeat' is an internal type that signals the leader to send a heartbeat of
+	the 'MessageType_MsgHeartbeat' type. If a node is a leader, the 'tick' function in
 	the 'raft' struct is set as 'tickHeartbeat', and triggers the leader to
-	send periodic 'MsgHeartbeat' messages to its followers.
+	send periodic 'MessageType_MsgHeartbeat' messages to its followers.
 
-	'MsgProp' proposes to append data to its log entries. This is a special
+	'MessageType_MsgPropose' proposes to append data to its log entries. This is a special
 	type to redirect proposals to leader. Therefore, send method overwrites
 	raftpb.Message's term with its HardState's term to avoid attaching its
-	local term to 'MsgProp'. When 'MsgProp' is passed to the leader's 'Step'
+	local term to 'MessageType_MsgPropose'. When 'MessageType_MsgPropose' is passed to the leader's 'Step'
 	method, the leader first calls the 'appendEntry' method to append entries
 	to its log, and then calls 'bcastAppend' method to send those entries to
-	its peers. When passed to candidate, 'MsgProp' is dropped. When passed to
-	follower, 'MsgProp' is stored in follower's mailbox(msgs) by the send
+	its peers. When passed to candidate, 'MessageType_MsgPropose' is dropped. When passed to
+	follower, 'MessageType_MsgPropose' is stored in follower's mailbox(msgs) by the send
 	method. It is stored with sender's ID and later forwarded to leader by
 	rafthttp package.
 
-	'MsgApp' contains log entries to replicate. A leader calls bcastAppend,
-	which calls sendAppend, which sends soon-to-be-replicated logs in 'MsgApp'
-	type. When 'MsgApp' is passed to candidate's Step method, candidate reverts
+	'MessageType_MsgAppend' contains log entries to replicate. A leader calls bcastAppend,
+	which calls sendAppend, which sends soon-to-be-replicated logs in 'MessageType_MsgAppend'
+	type. When 'MessageType_MsgAppend' is passed to candidate's Step method, candidate reverts
 	back to follower, because it indicates that there is a valid leader sending
-	'MsgApp' messages. Candidate and follower respond to this message in
-	'MsgAppResp' type.
+	'MessageType_MsgAppend' messages. Candidate and follower respond to this message in
+	'MessageType_MsgAppendResponse' type.
 
-	'MsgAppResp' is response to log replication request('MsgApp'). When
-	'MsgApp' is passed to candidate or follower's Step method, it responds by
-	calling 'handleAppendEntries' method, which sends 'MsgAppResp' to raft
+	'MessageType_MsgAppendResponse' is response to log replication request('MessageType_MsgAppend'). When
+	'MessageType_MsgAppend' is passed to candidate or follower's Step method, it responds by
+	calling 'handleAppendEntries' method, which sends 'MessageType_MsgAppendResponse' to raft
 	mailbox.
 
-	'MsgVote' requests votes for election. When a node is a follower or
-	candidate and 'MsgHup' is passed to its Step method, then the node calls
+	'MessageType_MsgRequestVote' requests votes for election. When a node is a follower or
+	candidate and 'MessageType_MsgHup' is passed to its Step method, then the node calls
 	'campaign' method to campaign itself to become a leader. Once 'campaign'
-	method is called, the node becomes candidate and sends 'MsgVote' to peers
+	method is called, the node becomes candidate and sends 'MessageType_MsgRequestVote' to peers
 	in cluster to request votes. When passed to leader or candidate's Step
 	method and the message's Term is lower than leader's or candidate's,
-	'MsgVote' will be rejected ('MsgVoteResp' is returned with Reject true).
-	If leader or candidate receives 'MsgVote' with higher term, it will revert
-	back to follower. When 'MsgVote' is passed to follower, it votes for the
-	sender only when sender's last term is greater than MsgVote's term or
-	sender's last term is equal to MsgVote's term but sender's last committed
+	'MessageType_MsgRequestVote' will be rejected ('MessageType_MsgRequestVoteResponse' is returned with Reject true).
+	If leader or candidate receives 'MessageType_MsgRequestVote' with higher term, it will revert
+	back to follower. When 'MessageType_MsgRequestVote' is passed to follower, it votes for the
+	sender only when sender's last term is greater than MessageType_MsgRequestVote's term or
+	sender's last term is equal to MessageType_MsgRequestVote's term but sender's last committed
 	index is greater than or equal to follower's.
 
-	'MsgVoteResp' contains responses from voting request. When 'MsgVoteResp' is
+	'MessageType_MsgRequestVoteResponse' contains responses from voting request. When 'MessageType_MsgRequestVoteResponse' is
 	passed to candidate, the candidate calculates how many votes it has won. If
 	it's more than majority (quorum), it becomes leader and calls 'bcastAppend'.
 	If candidate receives majority of votes of denials, it reverts back to
 	follower.
 
-	'MsgPreVote' and 'MsgPreVoteResp' are used in an optional two-phase election
+	'MessageType_MsgRequestPreVote' and 'MessageType_MsgRequestPreVoteResponse' are used in an optional two-phase election
 	protocol. When Config.PreVote is true, a pre-election is carried out first
 	(using the same rules as a regular election), and no node increases its term
 	number unless the pre-election indicates that the campaigning node would win.
 	This minimizes disruption when a partitioned node rejoins the cluster.
 
-	'MsgSnap' requests to install a snapshot message. When a node has just
-	become a leader or the leader receives 'MsgProp' message, it calls
+	'MessageType_MsgSnapshot' requests to install a snapshot message. When a node has just
+	become a leader or the leader receives 'MessageType_MsgPropose' message, it calls
 	'bcastAppend' method, which then calls 'sendAppend' method to each
 	follower. In 'sendAppend', if a leader fails to get term or entries,
-	the leader requests snapshot by sending 'MsgSnap' type message.
+	the leader requests snapshot by sending 'MessageType_MsgSnapshot' type message.
 
-	'MsgSnapStatus' tells the result of snapshot install message. When a
-	follower rejected 'MsgSnap', it indicates the snapshot request with
-	'MsgSnap' had failed from network issues which causes the network layer
+	'MessageType_MessageType_MsgSnapshotStatus' tells the result of snapshot install message. When a
+	follower rejected 'MessageType_MsgSnapshot', it indicates the snapshot request with
+	'MessageType_MsgSnapshot' had failed from network issues which causes the network layer
 	to fail to send out snapshots to its followers. Then leader considers
-	follower's progress as probe. When 'MsgSnap' were not rejected, it
+	follower's progress as probe. When 'MessageType_MsgSnapshot' were not rejected, it
 	indicates that the snapshot succeeded and the leader sets follower's
 	progress to probe and resumes its log replication.
 
-	'MsgHeartbeat' sends heartbeat from leader. When 'MsgHeartbeat' is passed
+	'MessageType_MsgHeartbeat' sends heartbeat from leader. When 'MessageType_MsgHeartbeat' is passed
 	to candidate and message's term is higher than candidate's, the candidate
 	reverts back to follower and updates its committed index from the one in
 	this heartbeat. And it sends the message to its mailbox. When
-	'MsgHeartbeat' is passed to follower's Step method and message's term is
+	'MessageType_MsgHeartbeat' is passed to follower's Step method and message's term is
 	higher than follower's, the follower updates its leaderID with the ID
 	from the message.
 
-	'MsgHeartbeatResp' is a response to 'MsgHeartbeat'. When 'MsgHeartbeatResp'
+	'MessageType_MsgHeartbeatResponse' is a response to 'MessageType_MsgHeartbeat'. When 'MessageType_MsgHeartbeatResponse'
 	is passed to leader's Step method, the leader knows which follower
 	responded. And only when the leader's last committed index is greater than
 	follower's Match index, the leader runs 'sendAppend` method.
 
-	'MsgUnreachable' tells that request(message) wasn't delivered. When
-	'MsgUnreachable' is passed to leader's Step method, the leader discovers
-	that the follower that sent this 'MsgUnreachable' is not reachable, often
-	indicating 'MsgApp' is lost. When follower's progress state is replicate,
+	'MessageType_MsgUnreachable' tells that request(message) wasn't delivered. When
+	'MessageType_MsgUnreachable' is passed to leader's Step method, the leader discovers
+	that the follower that sent this 'MessageType_MsgUnreachable' is not reachable, often
+	indicating 'MessageType_MsgAppend' is lost. When follower's progress state is replicate,
 	the leader sets it back to probe.
 
 */
