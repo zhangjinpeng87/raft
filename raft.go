@@ -1139,7 +1139,9 @@ func stepLeader(r *Raft, m pb.Message) error {
 				}
 
 				if r.maybeCommit() {
-					r.bcastAppend()
+					if r.ShouldBcastCommit() {
+						r.bcastAppend()
+					}
 				} else if oldPaused {
 					// If we were paused before, this node may be missing the
 					// latest commit index, so send it.
