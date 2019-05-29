@@ -52,9 +52,10 @@ func (rn *RawNode) commitReady(rd Ready) {
 	// the next Ready. Note that if the current HardState contains a
 	// new Commit index, this does not mean that we're also applying
 	// all of the new entries due to commit pagination by size.
-	if index := rd.appliedCursor(); index > 0 {
-		rn.Raft.RaftLog.appliedTo(index)
-	}
+	// Note: Not compatible with tikv implementation.
+	// if index := rd.appliedCursor(); index > 0 {
+	//	rn.Raft.RaftLog.appliedTo(index)
+	//}
 
 	if len(rd.Entries) > 0 {
 		e := rd.Entries[len(rd.Entries)-1]
