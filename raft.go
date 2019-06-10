@@ -593,7 +593,7 @@ func (r *Raft) sendHeartbeat(to uint64, ctx []byte) {
 	commit := min(r.getProgress(to).Match, r.RaftLog.committed)
 	m := pb.Message{
 		To:      to,
-		MsgType:    pb.MessageType_MsgHeartbeat,
+		MsgType: pb.MessageType_MsgHeartbeat,
 		Commit:  commit,
 		Context: ctx,
 	}
@@ -1405,15 +1405,18 @@ func (r *Raft) restore(s pb.Snapshot) bool {
 		return false
 	}
 
+	// Note: in TiKV, the newly added learner is first replicated as follower and
+	// later change to learner when apply snapshot.
+	//
 	// The normal peer can't become learner.
-	if !r.IsLearner {
-		for _, id := range s.Metadata.ConfState.Learners {
-			if id == r.id {
-				r.logger.Errorf("%x can't become learner when restores snapshot [index: %d, term: %d]", r.id, s.Metadata.Index, s.Metadata.Term)
-				return false
-			}
-		}
-	}
+	// if !r.IsLearner {
+	// 	for _, id := range s.Metadata.ConfState.Learners {
+	// 		if id == r.id {
+	// 			r.logger.Errorf("%x can't become learner when restores snapshot [index: %d, term: %d]", r.id, s.Metadata.Index, s.Metadata.Term)
+	// 			return false
+	// 		}
+	// 	}
+	// }
 
 	r.logger.Infof("%x [commit: %d, lastindex: %d, lastterm: %d] starts to restore snapshot [index: %d, term: %d]",
 		r.id, r.RaftLog.committed, r.RaftLog.LastIndex(), r.RaftLog.lastTerm(), s.Metadata.Index, s.Metadata.Term)
