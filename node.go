@@ -363,7 +363,7 @@ func (n *node) run(r *Raft) {
 			if cc.NodeId == None {
 				select {
 				case n.confstatec <- pb.ConfState{
-					Nodes:    r.nodes(),
+					Voters:   r.nodes(),
 					Learners: r.learnerNodes()}:
 				case <-n.done:
 				}
@@ -386,7 +386,7 @@ func (n *node) run(r *Raft) {
 			}
 			select {
 			case n.confstatec <- pb.ConfState{
-				Nodes:    r.nodes(),
+				Voters:   r.nodes(),
 				Learners: r.learnerNodes()}:
 			case <-n.done:
 			}
@@ -446,10 +446,12 @@ func (n *node) Tick() {
 	}
 }
 
-func (n *node) Campaign(ctx context.Context) error { return n.step(ctx, pb.Message{MsgType: pb.MessageType_MsgHup}) }
+func (n *node) Campaign(ctx context.Context) error {
+	return n.step(ctx, pb.Message{MsgType: pb.MessageType_MsgHup})
+}
 
 func (n *node) Propose(ctx context.Context, data []byte) error {
-	entry := pb.Entry{Data:data}
+	entry := pb.Entry{Data: data}
 	return n.stepWait(ctx, pb.Message{MsgType: pb.MessageType_MsgPropose, Entries: []*pb.Entry{&entry}})
 }
 
