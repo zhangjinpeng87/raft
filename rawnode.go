@@ -169,7 +169,7 @@ func (rn *RawNode) ProposeConfChange(ctx []byte, cc pb.ConfChange) error {
 // ApplyConfChange applies a config change to the local node.
 func (rn *RawNode) ApplyConfChange(cc pb.ConfChange) *pb.ConfState {
 	if cc.NodeId == None {
-		return &pb.ConfState{Nodes: rn.Raft.nodes(), Learners: rn.Raft.learnerNodes()}
+		return &pb.ConfState{Voters: rn.Raft.nodes(), Learners: rn.Raft.learnerNodes()}
 	}
 	switch cc.ChangeType {
 	case pb.ConfChangeType_AddNode:
@@ -181,7 +181,7 @@ func (rn *RawNode) ApplyConfChange(cc pb.ConfChange) *pb.ConfState {
 	default:
 		panic("unexpected conf type")
 	}
-	return &pb.ConfState{Nodes: rn.Raft.nodes(), Learners: rn.Raft.learnerNodes()}
+	return &pb.ConfState{Voters: rn.Raft.nodes(), Learners: rn.Raft.learnerNodes()}
 }
 
 // Step advances the state machine using the given message.

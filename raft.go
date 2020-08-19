@@ -350,14 +350,14 @@ func newRaft(c *Config) *Raft {
 	}
 	peers := c.peers
 	learners := c.learners
-	if len(cs.Nodes) > 0 || len(cs.Learners) > 0 {
+	if len(cs.Voters) > 0 || len(cs.Learners) > 0 {
 		if len(peers) > 0 || len(learners) > 0 {
 			// TODO(bdarnell): the peers argument is always nil except in
 			// tests; the argument should be removed and these tests should be
 			// updated to specify their nodes through a snapshot.
 			panic("cannot specify both newRaft(peers, learners) and ConfState.(Nodes, Learners)")
 		}
-		peers = cs.Nodes
+		peers = cs.Voters
 		learners = cs.Learners
 	}
 	r := &Raft{
@@ -1424,7 +1424,7 @@ func (r *Raft) restore(s pb.Snapshot) bool {
 	r.RaftLog.restore(s)
 	r.Prs = make(map[uint64]*Progress)
 	r.LearnerPrs = make(map[uint64]*Progress)
-	r.restoreNode(s.Metadata.ConfState.Nodes, false)
+	r.restoreNode(s.Metadata.ConfState.Voters, false)
 	r.restoreNode(s.Metadata.ConfState.Learners, true)
 	return true
 }
